@@ -23,6 +23,20 @@ func mkWSLImgType() *rhel.ImageType {
 	)
 
 	it.DefaultImageConfig = &distro.ImageConfig{
+		CloudInit: []*osbuild.CloudInitStageOptions{
+			{
+				Filename: "99_wsl.cfg",
+				Config: osbuild.CloudInitConfigFile{
+					DatasourceList: []string{
+						"WSL",
+						"None",
+					},
+					Network: &osbuild.CloudInitConfigNetwork{
+						Config: "disabled",
+					},
+				},
+			},
+		},
 		Locale:    common.ToPtr("en_US.UTF-8"),
 		NoSElinux: common.ToPtr(true),
 		WSLConfig: &osbuild.WSLConfStageOptions{
@@ -43,6 +57,7 @@ func ubiCommonPackageSet(t *rhel.ImageType) rpmmd.PackageSet {
 			"basesystem",
 			"bash",
 			"ca-certificates",
+			"cloud-init",
 			"coreutils-single",
 			"crypto-policies-scripts",
 			"curl-minimal",
