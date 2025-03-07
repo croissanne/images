@@ -14,7 +14,7 @@ func mkWslImgType() *rhel.ImageType {
 		"disk.tar.gz",
 		"application/x-tar",
 		map[string]rhel.PackageSetFunc{
-			rhel.OSPkgsKey: ubiCommonPackageSet,
+			rhel.OSPkgsKey: wslPackageSet,
 		},
 		rhel.TarImage,
 		[]string{"build"},
@@ -23,6 +23,20 @@ func mkWslImgType() *rhel.ImageType {
 	)
 
 	it.DefaultImageConfig = &distro.ImageConfig{
+		CloudInit: []*osbuild.CloudInitStageOptions{
+			{
+				Filename: "99_wsl.cfg",
+				Config: osbuild.CloudInitConfigFile{
+					DatasourceList: []string{
+						"WSL",
+						"None",
+					},
+					Network: &osbuild.CloudInitConfigNetwork{
+						Config: "disabled",
+					},
+				},
+			},
+		},
 		Locale:    common.ToPtr("en_US.UTF-8"),
 		NoSElinux: common.ToPtr(true),
 		WSLConfig: &osbuild.WSLConfStageOptions{
@@ -87,9 +101,11 @@ func ubiCommonPackageSet(t *rhel.ImageType) rpmmd.PackageSet {
 			"alsa-tools-firmware",
 			"biosdevname",
 			"cpio",
-			"diffutils",
 			"dnf-plugin-spacewalk",
 			"dracut",
+			// Not part of ubi image, but gets pulled in by cloud-init in the wsl package set,
+			// exclude these to get closer to the ubi container.
+			// "diffutils",
 			"elfutils-debuginfod-client",
 			"fedora-release",
 			"fedora-repos",
@@ -112,18 +128,21 @@ func ubiCommonPackageSet(t *rhel.ImageType) rpmmd.PackageSet {
 			"libkcapi",
 			"libkcapi-hmaccalc",
 			"libsecret",
-			"libselinux-utils",
+			// Same situation as diffutils.
+			// "libselinux-utils",
 			"libxkbcommon",
 			"libertas-sd8787-firmware",
 			"memstrack",
 			"nss",
-			"openssl",
+			// Same situation as diffutils.
+			// "openssl",
 			"openssl-pkcs11",
 			"os-prober",
 			"pigz",
 			"pinentry",
 			"plymouth",
-			"policycoreutils",
+			// Same situation as diffutils.
+			// "policycoreutils",
 			"python3-unbound",
 			"redhat-release-eula",
 			"rng-tools",
@@ -143,4 +162,14 @@ func ubiCommonPackageSet(t *rhel.ImageType) rpmmd.PackageSet {
 	}
 
 	return ps
+}
+
+func wslPackageSet(t *rhel.ImageType) rpmmd.PackageSet {
+	pkgset := ubiCommonPackageSet(t)
+	pkgset = pkgset.Append(rpmmd.PackageSet{
+		Include: []string{
+			"cloud-init",
+		},
+	})
+	return pkgset
 }
