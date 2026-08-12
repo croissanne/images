@@ -3,6 +3,7 @@ package main_test
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -89,8 +90,24 @@ func TestUploadWithAWSMock(t *testing.T) {
 		})
 		defer restore()
 
+		// to capture progress, overwrite os.Stderr entirely
+		old := os.Stderr
+		defer func() {
+			os.Stderr = old
+		}()
+		r, w, err := os.Pipe()
+		assert.NoError(t, err)
+		defer w.Close()
+		defer r.Close()
+		os.Stderr = w
+
 		err = main.Run()
 		require.NoError(t, err)
+
+		assert.NoError(t, w.Close())
+		var progressBuf bytes.Buffer
+		_, err = io.Copy(&progressBuf, r)
+		assert.NoError(t, err)
 
 		assert.Equal(t, regionName, "aws-region-1")
 		assert.Equal(t, bucketName, "aws-bucket-2")
