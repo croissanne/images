@@ -83,6 +83,11 @@ type ProgressBar interface {
 type ProgressConfig struct {
 	// file progress only
 	FilePath string
+
+	// term progress only
+	Bytes   bool
+	Speed   bool
+	WithMsg bool
 }
 
 // New creates a new progressbar based on the requested type
@@ -95,13 +100,13 @@ func New(typ string, config ProgressConfig) (ProgressBar, error) {
 		// autoselect based on if we are on an interactive
 		// terminal, use verbose progress for scripts
 		if isattyIsTerminal(os.Stdin.Fd()) && w > 0 && h > 0 {
-			return NewTerminalProgressBar()
+			return NewTerminalProgressBar(config.Bytes, config.Speed, config.WithMsg)
 		}
 		return NewVerboseProgressBar()
 	case "verbose":
 		return NewVerboseProgressBar()
 	case "term":
-		return NewTerminalProgressBar()
+		return NewTerminalProgressBar(config.Bytes, config.Speed, config.WithMsg)
 	case "debug":
 		return NewDebugProgressBar()
 	case "file":
@@ -113,6 +118,10 @@ func New(typ string, config ProgressConfig) (ProgressBar, error) {
 
 type terminalProgressBar struct {
 	mu sync.Mutex
+
+	bytes bool
+	speed bool
+	msgpb bool
 
 	spinnerPb   *pb.ProgressBar
 	msgPb       *pb.ProgressBar
@@ -127,14 +136,19 @@ type terminalProgressBar struct {
 
 // NewTerminalProgressBar creates a new default pb3 based progressbar suitable for
 // most terminals.
-func NewTerminalProgressBar() (ProgressBar, error) {
+func NewTerminalProgressBar(bytes, speed, msgpb bool) (ProgressBar, error) {
 	b := &terminalProgressBar{
-		out: osStderr(),
+		bytes: bytes,
+		speed: speed,
+		msgpb: msgpb,
+		out:   osStderr(),
 	}
 	b.spinnerPb = pb.New(0)
 	b.spinnerPb.SetTemplate(`[{{ (cycle . "|" "/" "-" "\\") }}] {{ string . "spinnerMsg" }}`)
-	b.msgPb = pb.New(0)
-	b.msgPb.SetTemplate(`Message: {{ string . "msg" }}`)
+	if msgpb {
+		b.msgPb = pb.New(0)
+		b.msgPb.SetTemplate(`Message: {{ string . "msg" }}`)
+	}
 	return b, nil
 }
 
@@ -148,6 +162,9 @@ func (b *terminalProgressBar) SetProgress(subLevel int, msg string, done int, to
 	case subLevel == len(b.subLevelPbs):
 		apb := pb.New(0)
 		progressBarTmpl := `[{{ counters . }}] {{ string . "prefix" }} {{ bar .}} {{ percent . }}`
+		if b.speed {
+			progressBarTmpl += ` {{ speed . }}`
+		}
 		apb.SetTemplateString(progressBarTmpl)
 		if err := apb.Err(); err != nil {
 			return fmt.Errorf("error setting the progressbarTemplat: %w", err)
@@ -165,6 +182,7 @@ func (b *terminalProgressBar) SetProgress(subLevel int, msg string, done int, to
 	apb.SetTotal(int64(total) + 1)
 	apb.SetCurrent(int64(done) + 1)
 	apb.Set("prefix", msg)
+	apb.Set(pb.Bytes, b.bytes)
 	return nil
 }
 
@@ -173,7 +191,9 @@ func (b *terminalProgressBar) SetPulseMsgf(msg string, args ...any) {
 }
 
 func (b *terminalProgressBar) SetMessagef(msg string, args ...any) {
-	b.msgPb.Set("msg", fmt.Sprintf(msg, args...))
+	if b.msgPb != nil {
+		b.msgPb.Set("msg", fmt.Sprintf(msg, args...))
+	}
 }
 
 func shortenString(msg string) string {
@@ -195,8 +215,10 @@ func (b *terminalProgressBar) render() {
 		fmt.Fprintf(b.out, "%s%s\n", ERASE_LINE, prog.String())
 		renderedLines++
 	}
-	fmt.Fprintf(b.out, "%s%s\n", ERASE_LINE, shortenString(b.msgPb.String()))
-	renderedLines++
+	if b.msgPb != nil {
+		fmt.Fprintf(b.out, "%s%s\n", ERASE_LINE, shortenString(b.msgPb.String()))
+		renderedLines++
+	}
 	fmt.Fprint(b.out, cursorUp(renderedLines))
 }
 
@@ -238,8 +260,10 @@ func (b *terminalProgressBar) Err() error {
 	if err := b.spinnerPb.Err(); err != nil {
 		errs = append(errs, fmt.Errorf("error on spinner progressbar: %w", err))
 	}
-	if err := b.msgPb.Err(); err != nil {
-		errs = append(errs, fmt.Errorf("error on spinner progressbar: %w", err))
+	if b.msgPb != nil {
+		if err := b.msgPb.Err(); err != nil {
+			errs = append(errs, fmt.Errorf("error on spinner progressbar: %w", err))
+		}
 	}
 	for _, pb := range b.subLevelPbs {
 		if err := pb.Err(); err != nil {
